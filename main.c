@@ -23,35 +23,43 @@ int frame_table[100];
 void page_fault_handler( struct page_table *pt, int page )
 {
 	int block = disk_nblocks(disk);
-	int frame;
+	int frame = 0;
 	int bits = 0;
+	int i;
+	for(i = 0;i < block;i++){
+		if(!(frame_table[i])){
+			frame = i;
+			break;
+		}
+	}
+	if(!(frame)){
+		if(!strcmp(replace, "rand")){
+			frame = rand() % block;
+		} else if(!strcmp(replace, "fifo")) {
+			
+		} else if(!strcmp(replace, "custom")) {
+	
+		} else {
+			printf("unknown algorithm: %s\n", replace);
+			exit(1);
+		}
+	}
 	page_table_get_entry(pt, page, &frame, &bits);
 	if(bits&PROT_READ && !(bits&PROT_WRITE)){
 		page_table_set_entry(pt, page, frame, PROT_READ|PROT_WRITE);
 	} else if (bits&PROT_WRITE) {
-		if(!strcmp(replace, "rand")){
-			frame = rand() % block;
-		} else if(!strcmp(replace, "fifo")) {
-
-		} else if(!strcmp(replace, "custom")) {
-
-		} else {
-			printf("unknown algorithm: %s", replace);
-		}
 		int npage = rand() % page_table_get_npages(pt);
 		char * mem = page_table_get_physmem(pt);
-		disk_write(disk,npage, &mem[3*block]);
-		disk_read(disk,page, &mem[3*block]);
-		page_table_set_entry(pt,page,frame,PROT_READ);
+		disk_write(disk, npage, &mem[3*block]);
+		disk_read(disk, page, &mem[3*block]);
+		page_table_set_entry(pt, page, frame, PROT_READ);
 		page_table_set_entry(pt, npage, frame, 0);
 		frame_table[frame] = 0;
 	} else {
-		if(page < block){
-			page_table_set_entry(pt, page, frame, PROT_READ);
-			char * mem = page_table_get_physmem(pt);
-			disk_read(disk, page, &mem[3*block]);
-			frame_table[frame] = 1;
-		}
+		page_table_set_entry(pt, page, frame, PROT_READ);
+		char * mem = page_table_get_physmem(pt);
+		disk_read(disk, page, &mem[3*block]);
+		frame_table[frame] = 1;
 	}
 	//printf("page fault on page #%d\n",page);
 	//exit(1);
