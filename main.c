@@ -20,14 +20,17 @@ struct disk *disk;
 const char *replace;
 int* frame_table;
 int nframes;
+int page_faults;
+int disk_readN;
+int disk_writeN;
 
 void page_fault_handler( struct page_table *pt, int page )
 {
+	page_faults++;
 	int block = disk_nblocks(disk);
 	int frame = -1;
 	int bits = 0;
 
-	printf("page: %d\n", page);
 	printf("frame table: ");
 	int j;
 	for (j=0; j < nframes; j++) {
@@ -57,7 +60,6 @@ void page_fault_handler( struct page_table *pt, int page )
 				}
 			}
 			frame = high_frame;
-			printf("old frame: %d\n", frame);
 		} else if(!strcmp(replace, "custom")) {
 	
 		} else {
@@ -65,12 +67,13 @@ void page_fault_handler( struct page_table *pt, int page )
 			exit(1);
 		}
 	}
-	printf("frame: %d\n", frame);
 	int newframe;
 	page_table_get_entry(pt, page, &newframe, &bits);
 	if(bits&PROT_READ && !(bits&PROT_WRITE)){
-		printf("here\n");
 		page_table_set_entry(pt, page, newframe, PROT_READ|PROT_WRITE);
+		if(!(strcmp(replace, "custom"))){
+			frame_table[newframe] = 1;
+		}
 	} else if (bits&PROT_WRITE) {
 		int npage = rand() % page_table_get_npages(pt);
 		char * mem = page_table_get_physmem(pt);
@@ -79,12 +82,16 @@ void page_fault_handler( struct page_table *pt, int page )
 		page_table_set_entry(pt, page, frame, PROT_READ);
 		page_table_set_entry(pt, npage, frame, 0);
 		frame_table[frame] = 1;
+		disk_readN++;
+		disk_writeN++;
+		printf("fdsa\n");
 	} else {
-		printf("newentry\n");
+		printf("%d\n",  bits);
 		page_table_set_entry(pt, page, frame, PROT_READ);
 		char * mem = page_table_get_physmem(pt);
 		disk_read(disk, page, &mem[3*block]);
 		frame_table[frame] = 1;
+		disk_readN++;
 	}
 	//printf("page fault on page #%d\n",page);
 	//exit(1);
@@ -132,7 +139,7 @@ int main( int argc, char *argv[] )
 		fprintf(stderr,"unknown program: %s\n",argv[3]);
 		return 1;
 	}
-
+	printf("%d %d %d\n", page_faults, disk_readN, disk_writeN);
 	page_table_delete(pt);
 	free(frame_table);
 	disk_close(disk);
