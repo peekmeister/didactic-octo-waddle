@@ -16,9 +16,14 @@ how to use the page table and disk interfaces.
 #include <errno.h>
 #include <limits.h>
 
+typedef struct {
+	int page;
+	int recency;
+} Frame;
+
 struct disk *disk;
 const char *replace;
-int* frame_table;
+Frame* frame_table;
 int nframes;
 int page_faults;
 int disk_readN;
@@ -31,35 +36,36 @@ void page_fault_handler( struct page_table *pt, int page )
 	int frame = -1;
 	int bits = 0;
 
-	printf("frame table: ");
-	int j;
-	for (j=0; j < nframes; j++) {
-		printf("%d ", frame_table[j]);
-	}
-	printf("\n");
+	//printf("frame table: ");
+	//int j;
+	//for (j=0; j < nframes; j++) {
+	//	printf("%d-%d ", frame_table[j].page, frame_table[j].recency);
+	//}
+	//printf("\n");
 	
 	int i;
 	for(i = 0;i < nframes;i++){
-		if(frame_table[i] == 0){
+		if(frame_table[i].recency == 0 || frame_table[i].page == page){
 			frame = i;
 			break;
 		}else{
-			frame_table[i]++;
+			frame_table[i].recency++;
 		}
 	}
 	if(frame == -1){
 		if(!strcmp(replace, "rand")){
 			frame = rand() % nframes;
-		} else if(!strcmp(replace, "fifo")) {
+		} else if(!strcmp(replace, "fifo") || !strcmp(replace, "custom")) {
 			// find oldest frame in use
-			int i, high = frame_table[0], high_frame = 0; 
+			int i, high = frame_table[0].recency, high_frame = 0; 
 			for (i = 1; i < nframes; i++) {
-				if (frame_table[i] > high) {
-					high = frame_table[i];
+				if (frame_table[i].recency > high) {
+					high = frame_table[i].recency;
 					high_frame = i;
 				}
 			}
 			frame = high_frame;
+			//printf("high %d\n", frame);
 		} else if(!strcmp(replace, "custom")) {
 	
 		} else {
@@ -67,12 +73,15 @@ void page_fault_handler( struct page_table *pt, int page )
 			exit(1);
 		}
 	}
+	//printf("frame: %d\n", frame);
 	int newframe;
-	page_table_get_entry(pt, page, &newframe, &bits);
+	page_table_get_entry(pt, frame_table[frame].page, &newframe, &bits);
+	
+	//printf("page: %d --- bits: %d\n", page, bits);
 	if(bits&PROT_READ && !(bits&PROT_WRITE)){
-		page_table_set_entry(pt, page, newframe, PROT_READ|PROT_WRITE);
+		page_table_set_entry(pt, page, frame, PROT_READ|PROT_WRITE);
 		if(!(strcmp(replace, "custom"))){
-			frame_table[newframe] = 1;
+			frame_table[newframe].recency = 1;
 		}
 	} else if (bits&PROT_WRITE) {
 		int npage = rand() % page_table_get_npages(pt);
@@ -81,16 +90,16 @@ void page_fault_handler( struct page_table *pt, int page )
 		disk_read(disk, page, &mem[3*block]);
 		page_table_set_entry(pt, page, frame, PROT_READ);
 		page_table_set_entry(pt, npage, frame, 0);
-		frame_table[frame] = 1;
+		frame_table[frame].recency = 1;
+		frame_table[frame].page = page;
 		disk_readN++;
 		disk_writeN++;
-		printf("fdsa\n");
 	} else {
-		printf("%d\n",  bits);
 		page_table_set_entry(pt, page, frame, PROT_READ);
 		char * mem = page_table_get_physmem(pt);
 		disk_read(disk, page, &mem[3*block]);
-		frame_table[frame] = 1;
+		frame_table[frame].recency = 1;
+		frame_table[frame].page = page;
 		disk_readN++;
 	}
 	//printf("page fault on page #%d\n",page);
@@ -121,7 +130,7 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 
-	frame_table = (int*) calloc(nframes, sizeof(int));
+	frame_table = (Frame*) calloc(nframes, sizeof(Frame));
 	char *virtmem = page_table_get_virtmem(pt);
 
 	char *physmem = page_table_get_physmem(pt);
