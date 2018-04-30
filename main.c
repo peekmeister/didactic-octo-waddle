@@ -28,6 +28,7 @@ int nframes;
 int page_faults;
 int disk_readN;
 int disk_writeN;
+int last_replaced;
 
 void page_fault_handler( struct page_table *pt, int page )
 {
@@ -55,7 +56,7 @@ void page_fault_handler( struct page_table *pt, int page )
 	if(frame == -1){
 		if(!strcmp(replace, "rand")){
 			frame = rand() % nframes;
-		} else if(!strcmp(replace, "fifo") || !strcmp(replace, "custom")) {
+		} else if(!strcmp(replace, "fifo")) {
 			// find oldest frame in use
 			int i, high = frame_table[0].recency, high_frame = 0; 
 			for (i = 1; i < nframes; i++) {
@@ -67,7 +68,23 @@ void page_fault_handler( struct page_table *pt, int page )
 			frame = high_frame;
 			//printf("high %d\n", frame);
 		} else if(!strcmp(replace, "custom")) {
-	
+			int i, temp_bits, temp;
+			for (i=0; i<nframes; i++) {
+			 	// find first page with only R flag that's not the last one replaced
+			 	page_table_get_entry(pt, frame_table[i].page, &temp, &temp_bits);
+				if (bits&PROT_READ && !(bits&PROT_WRITE) && frame_table[i].page != page) {
+					frame = i;
+					break;
+				} 
+			}
+			if (frame == -1) {
+				if (0 != last_replaced) {
+					frame = 0;
+				} else {
+					frame = 1;
+				}
+			}
+			last_replaced = frame;
 		} else {
 			printf("unknown algorithm: %s\n", replace);
 			exit(1);
