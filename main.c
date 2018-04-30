@@ -16,6 +16,8 @@ how to use the page table and disk interfaces.
 #include <errno.h>
 #include <limits.h>
 
+// struct to represent a frame: contains the page and a count to indicate when it first was placed
+// in the frame for the FIFO algorithm
 typedef struct {
 	int page;
 	int recency;
@@ -37,27 +39,23 @@ void page_fault_handler( struct page_table *pt, int page )
 	int frame = -1;
 	int bits = 0;
 
-	//printf("frame table: ");
-	//int j;
-	//for (j=0; j < nframes; j++) {
-	//	printf("%d-%d ", frame_table[j].page, frame_table[j].recency);
-	//}
-	//printf("\n");
-	
 	int i;
 	for(i = 0;i < nframes;i++){
+		// first check for an unused frame or if the current page is already in a fram
 		if(frame_table[i].recency == 0 || frame_table[i].page == page){
 			frame = i;
 			break;
 		}else{
+			// increment the tracker on when a page was placed in a frame
 			frame_table[i].recency++;
 		}
 	}
 	if(frame == -1){
+		// case if all frames are full
 		if(!strcmp(replace, "rand")){
 			frame = rand() % nframes;
 		} else if(!strcmp(replace, "fifo")) {
-			// find oldest frame in use
+			// find oldest frame in use and choose to evict this one
 			int i, high = frame_table[0].recency, high_frame = 0; 
 			for (i = 1; i < nframes; i++) {
 				if (frame_table[i].recency > high) {
@@ -66,8 +64,8 @@ void page_fault_handler( struct page_table *pt, int page )
 				}
 			}
 			frame = high_frame;
-			//printf("high %d\n", frame);
 		} else if(!strcmp(replace, "custom")) {
+			// prioritizes replacing pages with only an R flag over those with the RW flags
 			int i, temp_bits, temp;
 			for (i=0; i<nframes; i++) {
 			 	// find first page with only R flag that's not the last one replaced
@@ -77,6 +75,7 @@ void page_fault_handler( struct page_table *pt, int page )
 					break;
 				} 
 			}
+ 			// in case all frames have the RW flag, then just make sure the last one replaced is not picked
 			if (frame == -1) {
 				if (0 != last_replaced) {
 					frame = 0;
@@ -90,17 +89,18 @@ void page_fault_handler( struct page_table *pt, int page )
 			exit(1);
 		}
 	}
-	//printf("frame: %d\n", frame);
+	// get the entry for the page in the frame
 	int newframe;
 	page_table_get_entry(pt, frame_table[frame].page, &newframe, &bits);
 	
-	//printf("page: %d --- bits: %d\n", page, bits);
 	if(bits&PROT_READ && !(bits&PROT_WRITE)){
+		// update page in a frame if it already exists inside
 		page_table_set_entry(pt, page, frame, PROT_READ|PROT_WRITE);
 		if(!(strcmp(replace, "custom"))){
 			frame_table[newframe].recency = 1;
 		}
 	} else if (bits&PROT_WRITE) {
+		// evict page
 		int npage = rand() % page_table_get_npages(pt);
 		char * mem = page_table_get_physmem(pt);
 		disk_write(disk, npage, &mem[3*block]);
@@ -112,6 +112,7 @@ void page_fault_handler( struct page_table *pt, int page )
 		disk_readN++;
 		disk_writeN++;
 	} else {
+		// place new page inside the frame table
 		page_table_set_entry(pt, page, frame, PROT_READ);
 		char * mem = page_table_get_physmem(pt);
 		disk_read(disk, page, &mem[3*block]);
@@ -135,12 +136,14 @@ int main( int argc, char *argv[] )
 	replace = argv[3];
 	const char *program = argv[4];
 
+	// open disk and check for errors
 	disk = disk_open("myvirtualdisk",npages);
 	if(!disk) {
 		fprintf(stderr,"couldn't create virtual disk: %s\n",strerror(errno));
 		return 1;
 	}
 
+	// create page table and check for errors
 	struct page_table *pt = page_table_create( npages, nframes, page_fault_handler );
 	if(!pt) {
 		fprintf(stderr,"couldn't create page table: %s\n",strerror(errno));
